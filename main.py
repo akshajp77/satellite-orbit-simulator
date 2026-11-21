@@ -2,6 +2,9 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.animation import FuncAnimation
 import math
+import numpy as np
+from matplotlib.ticker import MaxNLocator
+from matplotlib.widgets import Slider
 
 
 earth_radius = 6_371_000
@@ -100,6 +103,9 @@ def measure_period(x_positions, y_positions, dt):
 
 duration = 8000
 
+time_steps = []
+period_errors = []
+
 for test_dt in (1, 5, 10, 20):
     test_steps = duration // test_dt
     test_x, test_y, *_ = simulate_orbit(x,y,vx,vy, test_dt, test_steps)
@@ -109,6 +115,8 @@ for test_dt in (1, 5, 10, 20):
         print(f"dt = {test_dt:2d} s | No completed orbit")
     else:
         error = abs(measured - predicted_period)
+        time_steps.append(test_dt)
+        period_errors.append(error)
         print(f"dt = {test_dt:2d} s | Period error = {error:.6f} s")
 
 
@@ -150,6 +158,13 @@ ax.set_ylabel("y position (m)")
 ax.set_title("Satellite starting position")
 ax.legend()
 
+telemetry = ax.text(
+    0.02, 0.98, "",
+    transform = ax.transAxes,
+    va="top",
+    bbox={"facecolor": "white", "alpha": 0.9}
+)
+
 
 def update(frame):
     orbit_line.set_data(
@@ -162,7 +177,17 @@ def update(frame):
         [y_positions[frame]]
     )
 
-    return orbit_line, satellite
+    elapsed_minutes = frame * dt / 60
+    altitude_km = altitudes[frame] / 1000
+    speed_km_s = speeds[frame] / 1000
+
+    telemetry.set_text(
+        f"Time: {elapsed_minutes: .1f} min\n"
+        f"Alititude: {altitude_km:,.0f} km\n"
+        f"Speed: {speed_km_s: .2f} km/s"
+    )
+
+    return orbit_line, satellite, telemetry
 
 animation = FuncAnimation(
     fig,
@@ -222,5 +247,128 @@ ax_comparison.set_ylabel("y position (m)")
 ax_comparison.set_title("How starting speed changes the orbit")
 ax_comparison.legend()
 
+
+fig_error, ax_error = plt.subplots()
+ax_error.loglog(time_steps, period_errors, "o-", label="Measured error")
+
+# Start the reference line at the first measured point.
+reference_errors = [
+    period_errors[0] * (step / time_steps[0])**2
+    for step in time_steps
+]
+ax_error.loglog(time_steps, reference_errors, "--", label="Quadratic reference")
+
+ax_error.set_xlabel("Time step (s)")
+ax_error.set_ylabel("Absolute period error (s)")
+ax_error.set_title("Orbital period error vs. time step")
+ax_error.grid(True, which="both", alpha=0.3)
+ax_error.legend()
+
+
+kilometer = 1000
+inclination_degrees = 45
+inclination = math.radians(inclination_degrees)
+
+orbit_x = [x_sample / kilometer for x_sample in x_positions]
+orbit_y = [y_sample * math.cos(inclination) / kilometer for y_sample in y_positions]
+orbit_z = [y_sample * math.sin(inclination) / kilometer for y_sample in y_positions]
+
+radius_km = earth_radius / kilometer
+fig_3d = plt.figure(figsize=(13, 7), layout="constrained")
+grid = fig_3d.add_gridspec(2, 2, height_ratios=[20, 1])
+ax_3d = fig_3d.add_subplot(grid[0, 0], projection="3d")
+
+orbit_line_3d, = ax_3d.plot(
+    orbit_x, orbit_y, orbit_z, color="#cc5500", linewidth=2.5, label="Orbit"
+)
+
+# Draw Earth as a wireframe so the full orbit stays visible.
+longitude, latitude = np.meshgrid(
+    np.linspace(0, 2 * math.pi, 25),
+    np.linspace(-math.pi / 2, math.pi / 2, 13),
+)
+ax_3d.plot_wireframe(
+    radius_km * np.cos(latitude) * np.cos(longitude),
+    radius_km * np.cos(latitude) * np.sin(longitude),
+    radius_km * np.sin(latitude),
+    color="#4477aa", linewidth=0.6, alpha=0.35,
+)
+
+angles = np.linspace(0, 2 * math.pi, 181)
+ax_3d.plot(
+    radius_km * np.cos(angles), radius_km * np.sin(angles),
+    np.zeros_like(angles), "--", color="#4477aa", label="Earth's equator",
+)
+ax_3d.plot(orbit_x, orbit_y, orbit_z, color="#cc5500", linewidth=2.5, label="Orbit")
+ax_3d.plot(
+    orbit_x[:1], orbit_y[:1], orbit_z[:1],
+    "o", color="#176e61", label="Starting position",
+)
+
+# Center all three axes on Earth and use the same scale in every direction.
+farthest_radius_km = (earth_radius + max(altitudes)) / kilometer
+axis_limit = 1.08 * max(radius_km, farthest_radius_km)
+ax_3d.set_xlim(-axis_limit, axis_limit)
+ax_3d.set_ylim(-axis_limit, axis_limit)
+ax_3d.set_zlim(-axis_limit, axis_limit)
+ax_3d.set_box_aspect((1, 1, 1))
+ax_3d.set_proj_type("ortho")
+ax_3d.view_init(elev=25, azim=-55)
+for axis in (ax_3d.xaxis, ax_3d.yaxis, ax_3d.zaxis):
+    axis.set_major_locator(MaxNLocator(5, symmetric=True))
+
+ax_3d.set_title(f"Satellite orbit at {inclination_degrees}° inclination")
+ax_3d.set_xlabel("x (km)")
+ax_3d.set_ylabel("y (km)")
+ax_3d.set_zlabel("z (km)")
+ax_3d.legend(loc="upper left")
+
+slider_ax = fig_3d.add_subplot(grid[1, :])
+inclination_slider = Slider(
+    slider_ax, "Inclination", 0, 90,
+    valinit=inclination_degrees, valstep=1, valfmt="%d°"
+)
+
+def update_inclination(degrees):
+    angle = math.radians(degrees)
+    new_y = [sample * math.cos(angle) / kilometer for sample in y_positions]
+    new_z = [sample * math.sin(angle) / kilometer for sample in y_positions]
+
+    orbit_line_3d.set_data_3d(orbit_x, new_y, new_z)
+    ax_3d.set_title(f"Satellite orbit at {degrees:.0f}° inclination")
+    longitude_deg, latitude_deg = ground_track(orbit_x, new_y, new_z, dt)
+    track_points.set_offsets(
+        np.column_stack((longitude_deg[::10], latitude_deg[::10]))
+    )
+    fig_3d.canvas.draw_idle()
+
+
+
+inclination_slider.on_changed(update_inclination)
+
+def ground_track(orbit_x, orbit_y, orbit_z, dt):
+    longitude_in_space = np.arctan2(orbit_y, orbit_x)
+    latitude = np.arctan2(orbit_z, np.hypot(orbit_x, orbit_y))
+
+    elapsed_seconds = np.arange(len(orbit_x)) * dt
+    earth_rotation = 2 * math.pi * elapsed_seconds / 86_164
+
+    longitude_deg = np.degrees(longitude_in_space - earth_rotation)
+    longitude_deg = (longitude_deg + 180) % 360 - 180
+    return longitude_deg, np.degrees(latitude)
+
+longitude_deg, latitude_deg = ground_track(orbit_x, orbit_y, orbit_z, dt)
+
+
+ax_track = fig_3d.add_subplot(grid[0, 1])
+track_points = ax_track.scatter(longitude_deg[::10], latitude_deg[::10], s=6)
+ax_track.set(
+    title="Satellite ground track",
+    xlabel="Longitude (°)",
+    ylabel="Latitude (°)",
+    xlim=(-180, 180),
+    ylim=(-90, 90),
+)
+ax_track.grid(alpha=0.3)
 
 plt.show()
