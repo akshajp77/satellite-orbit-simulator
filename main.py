@@ -5,6 +5,7 @@ import math
 import numpy as np
 from matplotlib.ticker import MaxNLocator
 from matplotlib.widgets import Slider
+from matplotlib.widgets import Button, Slider
 
 
 earth_radius = 6_371_000
@@ -123,6 +124,13 @@ for test_dt in (1, 5, 10, 20):
 minimum_altitude = min(altitudes)
 maximum_altitude = max(altitudes)
 
+perigee_radius = math.hypot(x,y)
+predicted_apogee = 2 * semimajor_axis - perigee_radius - earth_radius
+apogee_error = abs(maximum_altitude - predicted_apogee)
+
+print(f"Predicted apogee alititude: {predicted_apogee / 1000:.3f} km")
+print(f"Apogee altitude error: {apogee_error:.2f} m")
+
 max_relative_error = max(
     abs(energy - initial_energy) / abs(initial_energy)
     for energy in energies
@@ -222,6 +230,17 @@ ax_altitude.set_ylabel("Altitude (km)")
 ax_altitude.set_title("Satellite altitude over time")
 ax_altitude.grid(True)
 
+apogee_index = altitudes.index(maximum_altitude)
+
+ax_altitude.scatter(
+    times_minutes[apogee_index],
+    altitudes_km[apogee_index],
+    color = "crimson",
+    label = "Apogee",
+)
+
+ax_altitude.legend()
+
 fig_speeds, ax_speeds = plt.subplots()
 
 ax_speeds.plot(times_minutes, speeds_km)
@@ -275,7 +294,7 @@ orbit_z = [y_sample * math.sin(inclination) / kilometer for y_sample in y_positi
 
 radius_km = earth_radius / kilometer
 fig_3d = plt.figure(figsize=(13, 7), layout="constrained")
-grid = fig_3d.add_gridspec(2, 2, height_ratios=[20, 1])
+grid = fig_3d.add_gridspec(4, 2, height_ratios=[20, 1, 1, 1.5])
 ax_3d = fig_3d.add_subplot(grid[0, 0], projection="3d")
 
 orbit_line_3d, = ax_3d.plot(
@@ -340,7 +359,7 @@ def update_inclination(degrees):
     track_points.set_offsets(
         np.column_stack((longitude_deg[::10], latitude_deg[::10]))
     )
-    fig_3d.canvas.draw_idle()
+    update_time(time_slider.val)
 
 
 
@@ -370,5 +389,80 @@ ax_track.set(
     ylim=(-90, 90),
 )
 ax_track.grid(alpha=0.3)
+
+satellite_marker, = ax_3d.plot([], [], [], "o", color="crimson")
+ground_marker, = ax_track.plot([], [], "o", color="crimson")
+
+time_slider = Slider(
+    fig_3d.add_subplot(grid[2, :]),
+    "Time (s)",
+    0, (len(orbit_x) - 1) * dt,
+    valinit=0, valstep=dt, valfmt="%.0f"
+)
+
+def update_time(elapsed_seconds):
+    index = round(elapsed_seconds / dt)
+    path_x, path_y, path_z = orbit_line_3d.get_data_3d()
+    longitude, latitude = ground_track(path_x, path_y, path_z, dt)
+
+    satellite_marker.set_data_3d(
+        [path_x[index]], [path_y[index]], [path_z[index]]
+    )
+
+    ground_marker.set_data([longitude[index]], [latitude[index]])
+    fig_3d.canvas.draw_idle()
+
+time_slider.on_changed(update_time)
+update_time(0)
+
+play_button = Button(fig_3d.add_subplot(grid[3, 0]), "Play")
+playback_timer = fig_3d.canvas.new_timer(interval=40)
+playing = False
+
+
+def set_playing(active):
+    global playing
+    playing = active
+
+    if playing:
+        play_button.label.set_text("Pause")
+        playback_timer.start()
+    else:
+        play_button.label.set_text("Play")
+        playback_timer.stop()
+
+    fig_3d.canvas.draw_idle()
+
+
+def advance_playback():
+    next_time = min(time_slider.val + 20 * dt, time_slider.valmax)
+    time_slider.set_val(next_time)
+
+    if next_time >= time_slider.valmax:
+        set_playing(False)
+
+
+def toggle_playback(_event):
+    if playing:
+        set_playing(False)
+    else:
+        if time_slider.val >= time_slider.valmax:
+            time_slider.set_val(0)
+        set_playing(True)
+
+
+playback_timer.add_callback(advance_playback)
+play_button.on_clicked(toggle_playback)
+
+apogee_button = Button(
+    fig_3d.add_subplot(grid[3,1]),
+    "Jump to apogee",
+)
+
+def jump_to_apogee(_event):
+    set_playing(False)
+    time_slider.set_val(apogee_index * dt)
+
+apogee_button.on_clicked(jump_to_apogee)
 
 plt.show()
