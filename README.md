@@ -1,50 +1,27 @@
 # Satellite Orbit Simulator
 
-A Python project that combines programming and orbital physics to
-simulate a satellite moving around Earth.
+An interactive Python simulator for exploring how a satellite moves around Earth.
+Change the orbital inclination and watch the 3D orbit and ground track update
+together. Use the time slider, Play/Pause, or Jump to apogee to inspect the orbit.
 
-## Project Goal
+## Run it
 
-Build a two-dimensional orbit simulator and investigate how different
-numerical methods and time steps affect its accuracy and execution time.
+    python -m pip install numpy matplotlib
+    python main.py
 
-## How It Works
+## Try this
 
-The simulator will begin with a satellite's starting position and velocity.
-It will calculate gravitational acceleration and update the satellite's
-motion over small time steps.
+Set the inclination to 60° and watch the ground track reach about 60° north
+and south. Click **Jump to apogee** to see the satellite at its farthest point.
 
-Plotting the resulting positions will show the satellite's orbit.
+## Accuracy check
 
-The initial model will treat Earth as a stationary, spherical source of
-gravity and the satellite as a point mass. It will ignore atmospheric drag
-and gravity from other celestial bodies.
+The default orbit starts at 400 km altitude with 1.1 times the local circular
+speed. Its predicted period is 131.61 minutes. With a 1-second time step,
+the measured period differs from the prediction by about 0.003 seconds.
+Doubling the time step from 5 to 10 to 20 seconds roughly quadruples the
+period error each time, consistent with the velocity Verlet method's
+second-order accuracy.
 
-## Research Question
-
-How do numerical methods and time-step sizes affect the accuracy and
-speed of a satellite orbit simulation?
-
-## Planned Features
-
-- Simulate and visualize circular and elliptical orbits.
-- Adjust the satellite's starting position and velocity.
-- Compare methods such as Euler and fourth-order Runge–Kutta.
-- Measure position error, energy drift, and execution time.
-- Validate results against known orbital equations.
-- Compare selected scenarios with NASA's General Mission Analysis Tool.
-
-## Tools
-
-- Python
-- NumPy for numerical calculations
-- Matplotlib for plotting and visualization
-
-## Learning Goals
-
-Develop skills in Python, numerical methods, orbital mechanics,
-scientific visualization, and evaluating simulation results.
-
-## Project Status
-
-Early development. Features listed above describe the planned scope.
+The model uses a spherical Earth with central gravity and constant rotation.
+It omits atmospheric drag and Earth's oblateness.
