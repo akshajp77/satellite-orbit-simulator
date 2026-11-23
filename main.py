@@ -2,75 +2,18 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.animation import FuncAnimation
 import math
+from typing import NamedTuple
 import numpy as np
 from matplotlib.ticker import MaxNLocator
-from matplotlib.widgets import Slider
-from matplotlib.widgets import Button, Slider
+from matplotlib.widgets import Button, RadioButtons, Slider, TextBox
+
+from physics import earth_radius, measure_period, mu, simulate_orbit
 
 
-earth_radius = 6_371_000
 altitude = 400_000
 
 x = earth_radius + altitude
 y = 0
-
-
-mu = 3.986004418e14 #Earth's graviational parameter, m^3/s^2
-
-
-#Acceleration function, m/s^2
-
-def acceleration(x , y):
-    r = (x**2 + y**2)**0.5
-    ax = -mu * x * (1/r**3)
-    ay = -mu * y * (1/r**3)
-    return ax, ay
-
-def specific_energy(x, y, vx, vy):
-    radius = (x**2 + y**2)**0.5
-    return 0.5 * (vx**2 + vy**2) - mu / radius
-
-def verlet_step(x,y,vx,vy,dt):
-     # Acceleration at the current position
-        accel_x, accel_y = acceleration(x,y)
-    
-        # Update position using current velocity and acceleration
-        x = x + vx * dt + 0.5 * accel_x * dt**2
-        y = y + vy * dt + 0.5 * accel_y * dt**2
-    
-        # Acceleration at the new position
-        new_accel_x, new_accel_y = acceleration(x,y)
-    
-    
-        # Update velocity using the average acceleration
-        vx = vx + 0.5 * (accel_x + new_accel_x) * dt
-        vy = vy + 0.5 * (accel_y + new_accel_y) * dt
-
-        return x,y,vx,vy
-
-
-def simulate_orbit(x, y, vx, vy, dt, steps):
-    # Record the starting state at time zero.
-    x_positions = [x]
-    y_positions = [y]
-
-    starting_radius = (x**2 + y**2)**0.5
-    altitudes = [starting_radius - earth_radius]
-    speeds = [(vx**2 + vy**2)**0.5]
-    energies = [specific_energy(x, y, vx, vy)]
-
-    for _ in range(steps):
-        x, y, vx, vy = verlet_step(x, y, vx, vy, dt)
-
-        x_positions.append(x)
-        y_positions.append(y)
-
-        current_radius = (x**2 + y**2)**0.5
-        altitudes.append(current_radius - earth_radius)
-        speeds.append((vx**2 + vy**2)**0.5)
-        energies.append(specific_energy(x, y, vx, vy))
-
-    return x_positions, y_positions, altitudes, speeds, energies
 
 
 # Set the initial velocity for the elliptical orbit.
@@ -92,16 +35,6 @@ predicted_period = 2 * math.pi * (semimajor_axis**3 / mu)**0.5
 
 print(f"Predicted orbital period: {predicted_period / 60:.2f} minutes")
     
-def measure_period(x_positions, y_positions, dt):
-    for i in range(1, len(y_positions)):
-        y_before = y_positions[i-1]
-        y_after = y_positions[i]
-
-        if y_before < 0 <= y_after and x_positions[i] > 0:
-            fraction = -y_before / (y_after - y_before)
-            return (i-1+fraction) * dt
-    return None
-
 duration = 8000
 
 time_steps = []
@@ -293,9 +226,9 @@ orbit_y = [y_sample * math.cos(inclination) / kilometer for y_sample in y_positi
 orbit_z = [y_sample * math.sin(inclination) / kilometer for y_sample in y_positions]
 
 radius_km = earth_radius / kilometer
-fig_3d = plt.figure(figsize=(13, 7), layout="constrained")
-grid = fig_3d.add_gridspec(4, 2, height_ratios=[20, 1, 1, 1.5])
-ax_3d = fig_3d.add_subplot(grid[0, 0], projection="3d")
+fig_3d = plt.figure(figsize=(13, 8), layout="constrained")
+grid = fig_3d.add_gridspec(6, 4, height_ratios=[20, 1, 1, 3, 2, 1])
+ax_3d = fig_3d.add_subplot(grid[0, :2], projection="3d")
 
 orbit_line_3d, = ax_3d.plot(
     orbit_x, orbit_y, orbit_z, color="#cc5500", linewidth=2.5, label="Orbit"
@@ -318,8 +251,7 @@ ax_3d.plot(
     radius_km * np.cos(angles), radius_km * np.sin(angles),
     np.zeros_like(angles), "--", color="#4477aa", label="Earth's equator",
 )
-ax_3d.plot(orbit_x, orbit_y, orbit_z, color="#cc5500", linewidth=2.5, label="Orbit")
-ax_3d.plot(
+starting_marker, = ax_3d.plot(
     orbit_x[:1], orbit_y[:1], orbit_z[:1],
     "o", color="#176e61", label="Starting position",
 )
@@ -336,7 +268,7 @@ ax_3d.view_init(elev=25, azim=-55)
 for axis in (ax_3d.xaxis, ax_3d.yaxis, ax_3d.zaxis):
     axis.set_major_locator(MaxNLocator(5, symmetric=True))
 
-ax_3d.set_title(f"Satellite orbit at {inclination_degrees}° inclination")
+ax_3d.set_title(f"Elliptical orbit at {inclination_degrees}° inclination")
 ax_3d.set_xlabel("x (km)")
 ax_3d.set_ylabel("y (km)")
 ax_3d.set_zlabel("z (km)")
@@ -349,21 +281,23 @@ inclination_slider = Slider(
 )
 
 def update_inclination(degrees):
+    preset = orbit_preset.value_selected
+    path = preset_paths[preset]
     angle = math.radians(degrees)
-    new_y = [sample * math.cos(angle) / kilometer for sample in y_positions]
-    new_z = [sample * math.sin(angle) / kilometer for sample in y_positions]
+    new_x = np.asarray(path.x_positions) / kilometer
+    y_km = np.asarray(path.y_positions) / kilometer
+    new_y = y_km * math.cos(angle)
+    new_z = y_km * math.sin(angle)
 
-    orbit_line_3d.set_data_3d(orbit_x, new_y, new_z)
-    ax_3d.set_title(f"Satellite orbit at {degrees:.0f}° inclination")
-    longitude_deg, latitude_deg = ground_track(orbit_x, new_y, new_z, dt)
+    orbit_line_3d.set_data_3d(new_x, new_y, new_z)
+    ax_3d.set_title(f"{preset} orbit at {degrees:.0f}° inclination")
+    longitude_deg, latitude_deg = ground_track(new_x, new_y, new_z, dt)
     track_points.set_offsets(
         np.column_stack((longitude_deg[::10], latitude_deg[::10]))
     )
     update_time(time_slider.val)
 
 
-
-inclination_slider.on_changed(update_inclination)
 
 def ground_track(orbit_x, orbit_y, orbit_z, dt):
     longitude_in_space = np.arctan2(orbit_y, orbit_x)
@@ -379,7 +313,7 @@ def ground_track(orbit_x, orbit_y, orbit_z, dt):
 longitude_deg, latitude_deg = ground_track(orbit_x, orbit_y, orbit_z, dt)
 
 
-ax_track = fig_3d.add_subplot(grid[0, 1])
+ax_track = fig_3d.add_subplot(grid[0, 2:])
 track_points = ax_track.scatter(longitude_deg[::10], latitude_deg[::10], s=6)
 ax_track.set(
     title="Satellite ground track",
@@ -460,9 +394,105 @@ apogee_button = Button(
 )
 
 def jump_to_apogee(_event):
+    index = preset_paths[orbit_preset.value_selected].apogee_index
+    if index is None:
+        return
     set_playing(False)
-    time_slider.set_val(apogee_index * dt)
+    time_slider.set_val(index * dt)
 
 apogee_button.on_clicked(jump_to_apogee)
+
+
+class ExplorerOrbit(NamedTuple):
+    x_positions: list
+    y_positions: list
+    apogee_index: int | None
+
+
+elliptical_path = ExplorerOrbit(x_positions, y_positions, apogee_index)
+preset_paths = {
+    "Circular": ExplorerOrbit(circular_x, circular_y, None),
+    "Elliptical": elliptical_path,
+    "Custom": elliptical_path,
+}
+preset_ax = fig_3d.add_subplot(grid[3, 2:])
+preset_ax.set_title("Orbit preset", loc="left")
+orbit_preset = RadioButtons(preset_ax, list(preset_paths), active=1)
+
+
+def switch_orbit(preset):
+    path = preset_paths[preset]
+    set_playing(False)
+    time_slider.reset()
+    time_slider.valmax = (len(path.x_positions) - 1) * dt
+    time_slider.ax.set_xlim(0, time_slider.valmax)
+
+    starting_marker.set_data_3d([path.x_positions[0] / kilometer], [0], [0])
+    path_radius_km = np.hypot(path.x_positions, path.y_positions).max() / kilometer
+    limit = max(axis_limit, 1.08 * path_radius_km)
+    ax_3d.set(xlim=(-limit, limit), ylim=(-limit, limit), zlim=(-limit, limit))
+
+    has_apogee = path.apogee_index is not None
+    apogee_button.set_active(has_apogee)
+    apogee_button.label.set_text(
+        "Jump to apogee" if has_apogee else "Apogee (ellipse only)"
+    )
+    update_inclination(inclination_slider.val)
+
+
+altitude_input_ax = fig_3d.add_subplot(grid[4, 0])
+altitude_input_ax.set_title("Starting altitude (km)", loc="left", fontsize=10)
+altitude_input = TextBox(altitude_input_ax, "", initial="400")
+speed_input_ax = fig_3d.add_subplot(grid[4, 1])
+speed_input_ax.set_title("Speed (× local circular)", loc="left", fontsize=10)
+speed_input = TextBox(speed_input_ax, "", initial="1.1")
+apply_button = Button(fig_3d.add_subplot(grid[4, 2:]), "Apply custom orbit")
+status_ax = fig_3d.add_subplot(grid[5, :])
+status_ax.axis("off")
+custom_status = status_ax.text(0, 0.5, "", va="center")
+
+
+def apply_custom_orbit(_event):
+    try:
+        altitude_km = float(altitude_input.text)
+        multiplier = float(speed_input.text)
+    except ValueError:
+        custom_status.set_text("Enter numbers for altitude and speed.")
+        fig_3d.canvas.draw_idle()
+        return
+
+    if not (200 <= altitude_km <= 2000 and 0.90 <= multiplier <= 1.15):
+        custom_status.set_text("Use 200–2,000 km and a speed multiplier of 0.90–1.15.")
+        fig_3d.canvas.draw_idle()
+        return
+
+    start_radius = earth_radius + altitude_km * kilometer
+    custom_semimajor_axis = start_radius / (2 - multiplier**2)
+    opposite_radius = 2 * custom_semimajor_axis - start_radius
+    if min(start_radius, opposite_radius) <= earth_radius:
+        custom_status.set_text("This orbit crosses Earth. Increase the altitude or starting speed.")
+        fig_3d.canvas.draw_idle()
+        return
+
+    custom_period = 2 * math.pi * math.sqrt(custom_semimajor_axis**3 / mu)
+    custom_steps = math.ceil(custom_period / dt)
+    custom_speed = math.sqrt(mu / start_radius) * multiplier
+    custom_x, custom_y, custom_altitudes, *_ = simulate_orbit(
+        start_radius, 0, 0, custom_speed, dt, custom_steps
+    )
+    custom_apogee_index = None
+    if multiplier < 1:
+        custom_apogee_index = 0
+    elif multiplier > 1:
+        custom_apogee_index = custom_altitudes.index(max(custom_altitudes))
+
+    preset_paths["Custom"] = ExplorerOrbit(custom_x, custom_y, custom_apogee_index)
+    custom_status.set_text(f"Custom orbit · Predicted period {custom_period / 60:.2f} min")
+    orbit_preset.set_active(2)
+
+
+inclination_slider.on_changed(update_inclination)
+orbit_preset.on_clicked(switch_orbit)
+apply_button.on_clicked(apply_custom_orbit)
 
 plt.show()
